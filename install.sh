@@ -48,17 +48,17 @@ install_required_packages() {
     case "${PKG_MGR}" in
         apt)
             ${SUDO} apt-get update
-            ${SUDO} apt-get install -y pandoc nodejs npm curl ca-certificates tar xz-utils jq
+            ${SUDO} apt-get install -y pandoc nodejs npm curl ca-certificates tar xz-utils
             ;;
         dnf)
-            ${SUDO} dnf install -y pandoc nodejs npm curl ca-certificates tar xz jq
+            ${SUDO} dnf install -y pandoc nodejs npm curl ca-certificates tar xz
             ;;
         pacman)
-            ${SUDO} pacman -Sy --noconfirm pandoc nodejs npm curl ca-certificates tar xz jq
+            ${SUDO} pacman -S --noconfirm pandoc nodejs npm curl ca-certificates tar xz
             ;;
         zypper)
-            ${SUDO} zypper --non-interactive install pandoc nodejs npm curl ca-certificates tar xz jq \
-                || ${SUDO} zypper --non-interactive install pandoc nodejs20 npm20 curl ca-certificates tar xz jq
+            ${SUDO} zypper --non-interactive install pandoc nodejs npm curl ca-certificates tar xz \
+                || ${SUDO} zypper --non-interactive install pandoc nodejs20 npm20 curl ca-certificates tar xz
             ;;
     esac
 }
@@ -195,9 +195,7 @@ install_pandoc_crossref_fallback() {
         fi
     fi
 
-    command -v jq >/dev/null 2>&1 || die "jq is required for pandoc-crossref fallback selection."
-
-    local arch token asset_name releases_json release_json requested_tag url tmpdir binary
+    local arch token asset_name requested_tag url tmpdir binary
     arch="$(uname -m)"
     case "${arch}" in
         x86_64|amd64)
@@ -214,31 +212,15 @@ install_pandoc_crossref_fallback() {
     asset_name="pandoc-crossref-Linux-${token}.tar.xz"
     requested_tag="${PANDOC_CROSSREF_TAG:-}"
     if [[ -n "${requested_tag}" ]]; then
-        log "Installing pandoc-crossref release tag ${requested_tag} from GitHub..."
-        release_json="$(curl -fsSL "https://api.github.com/repos/lierdakil/pandoc-crossref/releases/tags/${requested_tag}")"
-        url="$(jq -r --arg asset "${asset_name}" '.assets[]? | select(.name == $asset) | .browser_download_url' <<<"${release_json}" | head -n 1)"
+        log "Installing pandoc-crossref release tag ${requested_tag} via direct download URL..."
+        url="https://github.com/lierdakil/pandoc-crossref/releases/download/${requested_tag}/${asset_name}"
     else
-        log "Selecting pandoc-crossref release built for Pandoc v${pandoc_major_minor}..."
-        releases_json="$(curl -fsSL "https://api.github.com/repos/lierdakil/pandoc-crossref/releases?per_page=100")"
-        url="$(jq -r \
-            --arg token "${token}" \
-            --arg pandoc_minor "${pandoc_major_minor}" \
-            --arg asset "${asset_name}" '
-                .[]
-                | select(.prerelease | not)
-                | select(any(.assets[]?; .name == $asset))
-                | select(
-                    any((.body // "") | split("\n")[]?; test("^Linux-" + $token + ":.*built with Pandoc v" + $pandoc_minor + "(,|\\.|$)"))
-                    or
-                    ((.body // "") | test("built with Pandoc v" + $pandoc_minor + "(,|\\.|$)"))
-                )
-                | .assets[]?
-                | select(.name == $asset)
-                | .browser_download_url
-            ' <<<"${releases_json}" | head -n 1)"
+        log "Installing latest pandoc-crossref release via direct download URL..."
+        url="https://github.com/lierdakil/pandoc-crossref/releases/latest/download/${asset_name}"
     fi
 
-    [[ -n "${url}" ]] || die "Could not find a compatible ${asset_name} release for Pandoc v${pandoc_major_minor}. Set PANDOC_CROSSREF_TAG or install matching pandoc."
+    curl -fsSIL "${url}" >/dev/null \
+        || die "Could not find pandoc-crossref release asset at ${url}."
 
     tmpdir="$(mktemp -d)"
 
@@ -264,10 +246,12 @@ install_pandoc_crossref_fallback() {
     hash -r
     if ! pandoc_crossref_is_compatible; then
         detected_crossref_major_minor="$(get_pandoc_crossref_build_major_minor || true)"
-        if [[ -n "${detected_crossref_major_minor}" ]]; then
-            die "Installed pandoc-crossref is still incompatible: built for Pandoc v${detected_crossref_major_minor}, local pandoc is v${pandoc_major_minor}."
+        if [[ -n "${detected_crossref_major_minor}" && -z "${requested_tag}" ]]; then
+            die "Latest pandoc-crossref is built for Pandoc v${detected_crossref_major_minor}, but local pandoc is v${pandoc_major_minor}. Set PANDOC_CROSSREF_TAG to a compatible release tag."
+        elif [[ -n "${detected_crossref_major_minor}" ]]; then
+            die "Requested pandoc-crossref tag ${requested_tag} is built for Pandoc v${detected_crossref_major_minor}, but local pandoc is v${pandoc_major_minor}."
         fi
-        die "Installed pandoc-crossref but could not verify compatibility with pandoc v${pandoc_major_minor}."
+        die "Installed pandoc-crossref but could not verify compatibility with pandoc v${pandoc_major_minor}. Try setting PANDOC_CROSSREF_TAG."
     fi
 
     rm -rf "${tmpdir}"
