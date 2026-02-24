@@ -1,0 +1,9 @@
+# Runtime artifacts
+mermaid-filter.err
+*.log
+
+# Editor/OS noise
+.DS_Store
+Thumbs.db
+*.swp
+*~

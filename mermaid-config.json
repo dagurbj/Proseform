@@ -1,0 +1,16 @@
+{
+  "securityLevel": "strict",
+  "flowchart": {
+    "htmlLabels": false
+  },
+  "themeVariables": {
+    "fontFamily": "Arial, Helvetica, sans-serif"
+  },
+  "puppeteerConfig": {
+    "defaultViewport": {
+      "width": 1200,
+      "height": 1000,
+      "deviceScaleFactor": 3
+    }
+  }
+}
