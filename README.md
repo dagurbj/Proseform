@@ -1,4 +1,4 @@
-# DocConverter Markdown to DOCX (PNG Mermaid)
+# Proseform
 
 This release package converts a Markdown file to `.docx` using `todocx.sh`, including Mermaid diagrams rendered as high-resolution PNG images.
 
