@@ -1,0 +1,74 @@
+name: Issue report
+description: Report a bug or request an improvement
+title: "[Issue]: "
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe the issue.
+      placeholder: A clear and concise summary of the problem or request.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps_to_reproduce
+    attributes:
+      label: Steps to reproduce
+      description: List exact steps so others can reproduce the issue.
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: false
+
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: Expected behavior
+      description: What should happen?
+      placeholder: Describe the expected result.
+    validations:
+      required: false
+
+  - type: textarea
+    id: actual_behavior
+    attributes:
+      label: Actual behavior
+      description: What happened instead?
+      placeholder: Describe what actually happened.
+    validations:
+      required: false
+
+  - type: input
+    id: environment_os
+    attributes:
+      label: OS
+      placeholder: e.g., Ubuntu 24.04, macOS 14.6, Windows 11
+    validations:
+      required: false
+
+  - type: input
+    id: environment_pandoc
+    attributes:
+      label: Pandoc version
+      placeholder: e.g., 3.1.12.2
+    validations:
+      required: false
+
+  - type: input
+    id: environment_pandoc_crossref
+    attributes:
+      label: pandoc-crossref version
+      placeholder: e.g., 0.3.17.0
+    validations:
+      required: false
+
+  - type: input
+    id: environment_node
+    attributes:
+      label: Node/npm version
+      placeholder: e.g., Node 20.18.1 / npm 10.8.2
+    validations:
+      required: false
