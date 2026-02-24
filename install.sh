@@ -61,6 +61,13 @@ install_required_packages() {
             ${SUDO} apt-get update
             ${SUDO} apt-get install -y curl ca-certificates gnupg
             curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | ${SUDO} bash -
+            local apt_node_conflicts=(libnode-dev nodejs-doc)
+            for pkg in "${apt_node_conflicts[@]}"; do
+                if dpkg -s "${pkg}" >/dev/null 2>&1; then
+                    log "Removing conflicting package: ${pkg}"
+                    ${SUDO} apt-get purge -y "${pkg}"
+                fi
+            done
             ${SUDO} apt-get install -y pandoc nodejs tar xz-utils
             ;;
         dnf)
