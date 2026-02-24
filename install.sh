@@ -250,25 +250,45 @@ install_mermaid_filter() {
     fi
 }
 
-install_puppeteer_browser_for_mermaid() {
-    local npm_root browsers_cli chromium_revision cache_dir
-    npm_root="$(npm root -g 2>/dev/null || true)"
-    [[ -n "${npm_root}" ]] || {
-        warn "Could not determine npm global root; skipping Puppeteer browser install."
-        return
-    }
-
-    browsers_cli="${npm_root}/mermaid-filter/node_modules/.bin/browsers"
-    if [[ ! -x "${browsers_cli}" ]]; then
-        warn "Could not find Puppeteer browsers CLI at ${browsers_cli}; Mermaid rendering may fail until Chromium is installed."
-        return
+find_mermaid_filter_module_dir() {
+    local mermaid_bin npm_prefix npm_root
+    mermaid_bin="$(command -v mermaid-filter || true)"
+    if [[ -n "${mermaid_bin}" ]]; then
+        npm_prefix="$(cd "$(dirname "${mermaid_bin}")/.." && pwd)"
+        if [[ -d "${npm_prefix}/lib/node_modules/mermaid-filter" ]]; then
+            printf "%s\n" "${npm_prefix}/lib/node_modules/mermaid-filter"
+            return 0
+        fi
     fi
 
-    chromium_revision="$(NODE_PATH_TARGET="${npm_root}" node - <<'NODE'
+    npm_root="$(npm root -g 2>/dev/null || true)"
+    if [[ -n "${npm_root}" && -d "${npm_root}/mermaid-filter" ]]; then
+        printf "%s\n" "${npm_root}/mermaid-filter"
+        return 0
+    fi
+
+    return 1
+}
+
+install_puppeteer_browser_for_mermaid() {
+    local module_dir browsers_cli chromium_revision cache_dir target_home
+    local -a browsers_runner=()
+
+    module_dir="$(find_mermaid_filter_module_dir || true)"
+    if [[ -z "${module_dir}" ]]; then
+        die "Could not locate mermaid-filter module directory after install."
+    fi
+
+    browsers_cli="${module_dir}/node_modules/.bin/browsers"
+    if [[ ! -x "${browsers_cli}" ]]; then
+        die "Could not find Puppeteer browsers CLI at ${browsers_cli}."
+    fi
+
+    chromium_revision="$(NODE_PATH_TARGET="${module_dir}" node - <<'NODE'
 const path = require('path');
-const root = process.env.NODE_PATH_TARGET;
+const moduleDir = process.env.NODE_PATH_TARGET;
 try {
-  const revisions = require(path.join(root, 'mermaid-filter/node_modules/puppeteer-core/lib/cjs/puppeteer/revisions.js'));
+  const revisions = require(path.join(moduleDir, 'node_modules/puppeteer-core/lib/cjs/puppeteer/revisions.js'));
   process.stdout.write(revisions.PUPPETEER_REVISIONS.chromium || '');
 } catch (_) {
   process.stdout.write('');
@@ -276,16 +296,26 @@ try {
 NODE
 )"
 
-    cache_dir="${PUPPETEER_CACHE_DIR:-${HOME}/.cache/puppeteer}"
-    mkdir -p "${cache_dir}"
+    target_home="${HOME}"
+    if [[ "${EUID}" -eq 0 && -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+        target_home="$(getent passwd "${SUDO_USER}" | cut -d: -f6)"
+        browsers_runner=(sudo -H -u "${SUDO_USER}")
+    fi
+
+    cache_dir="${PUPPETEER_CACHE_DIR:-${target_home}/.cache/puppeteer}"
+    if (( ${#browsers_runner[@]} )); then
+        "${browsers_runner[@]}" mkdir -p "${cache_dir}"
+    else
+        mkdir -p "${cache_dir}"
+    fi
 
     if [[ -n "${chromium_revision}" ]]; then
         log "Installing Puppeteer Chromium revision ${chromium_revision} for mermaid-filter..."
-        "${browsers_cli}" install "chromium@${chromium_revision}" --path "${cache_dir}" >/dev/null \
+        "${browsers_runner[@]}" "${browsers_cli}" install "chromium@${chromium_revision}" --path "${cache_dir}" >/dev/null \
             || die "Failed to install Puppeteer Chromium revision ${chromium_revision}."
     else
         warn "Could not determine required Chromium revision from mermaid-filter; installing latest Puppeteer Chrome build."
-        "${browsers_cli}" install chrome --path "${cache_dir}" >/dev/null \
+        "${browsers_runner[@]}" "${browsers_cli}" install chrome --path "${cache_dir}" >/dev/null \
             || die "Failed to install Puppeteer Chrome browser."
     fi
 }
