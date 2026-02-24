@@ -250,6 +250,46 @@ install_mermaid_filter() {
     fi
 }
 
+install_puppeteer_browser_for_mermaid() {
+    local npm_root browsers_cli chromium_revision cache_dir
+    npm_root="$(npm root -g 2>/dev/null || true)"
+    [[ -n "${npm_root}" ]] || {
+        warn "Could not determine npm global root; skipping Puppeteer browser install."
+        return
+    }
+
+    browsers_cli="${npm_root}/mermaid-filter/node_modules/.bin/browsers"
+    if [[ ! -x "${browsers_cli}" ]]; then
+        warn "Could not find Puppeteer browsers CLI at ${browsers_cli}; Mermaid rendering may fail until Chromium is installed."
+        return
+    fi
+
+    chromium_revision="$(NODE_PATH_TARGET="${npm_root}" node - <<'NODE'
+const path = require('path');
+const root = process.env.NODE_PATH_TARGET;
+try {
+  const revisions = require(path.join(root, 'mermaid-filter/node_modules/puppeteer-core/lib/cjs/puppeteer/revisions.js'));
+  process.stdout.write(revisions.PUPPETEER_REVISIONS.chromium || '');
+} catch (_) {
+  process.stdout.write('');
+}
+NODE
+)"
+
+    cache_dir="${PUPPETEER_CACHE_DIR:-${HOME}/.cache/puppeteer}"
+    mkdir -p "${cache_dir}"
+
+    if [[ -n "${chromium_revision}" ]]; then
+        log "Installing Puppeteer Chromium revision ${chromium_revision} for mermaid-filter..."
+        "${browsers_cli}" install "chromium@${chromium_revision}" --path "${cache_dir}" >/dev/null \
+            || die "Failed to install Puppeteer Chromium revision ${chromium_revision}."
+    else
+        warn "Could not determine required Chromium revision from mermaid-filter; installing latest Puppeteer Chrome build."
+        "${browsers_cli}" install chrome --path "${cache_dir}" >/dev/null \
+            || die "Failed to install Puppeteer Chrome browser."
+    fi
+}
+
 install_pandoc_crossref_fallback() {
     local pandoc_major_minor detected_crossref_major_minor
 
@@ -382,6 +422,7 @@ install_optional_puppeteer_libs
 install_pandoc_crossref_package
 install_pandoc_crossref_fallback
 install_mermaid_filter
+install_puppeteer_browser_for_mermaid
 verify_tools
 verify_project_files
 
