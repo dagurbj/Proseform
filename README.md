@@ -1,10 +1,10 @@
 # DocConverter Markdown to DOCX (PNG Mermaid)
 
-This release package converts a Markdown file to `.docx` using `todocpng.sh`, including Mermaid diagrams rendered as high-resolution PNG images.
+This release package converts a Markdown file to `.docx` using `todocx.sh`, including Mermaid diagrams rendered as high-resolution PNG images.
 
 ## Included files
 
-- `todocpng.sh`
+- `todocx.sh`
 - `install.sh`
 - `remove-heading-numbers.lua`
 - `mermaid-caption-from-text.lua`
@@ -35,7 +35,7 @@ The installer sets up the required tools:
 Convert a Markdown file:
 
 ```bash
-./todocpng.sh path/to/file.md
+./todocx.sh path/to/file.md
 ```
 
 This creates:

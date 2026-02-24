@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document is a small demonstration input for `todocpng.sh`.
+This document is a small demonstration input for `todocx.sh`.
 It includes standard headings, normal paragraph text, a code block, and a Mermaid diagram with caption metadata for cross-references.
 
 ## Background
@@ -41,7 +41,7 @@ The diagram below shows a simple document conversion flow.
 
 ```mermaid {caption="Document conversion flow from Markdown to DOCX #fig:doc-flow"}
 flowchart LR
-    A[Markdown File] --> B[todocpng.sh]
+    A[Markdown File] --> B[todocx.sh]
     B --> C[Pandoc + Filters]
     C --> D[DOCX Output]
 ```

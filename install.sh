@@ -219,7 +219,7 @@ verify_tools() {
 
 verify_project_files() {
     local required_files=(
-        todocpng.sh
+        todocx.sh
         remove-heading-numbers.lua
         mermaid-caption-from-text.lua
         mermaid-image-to-figure.lua
@@ -234,7 +234,7 @@ verify_project_files() {
     elif [[ -f "${SCRIPT_DIR}/old/custom-reference.docx" ]]; then
         warn "custom-reference.docx not in repo root. Falling back to old/custom-reference.docx."
     else
-        warn "custom-reference.docx not found. todocpng.sh will still work, but with Pandoc's default Word template."
+        warn "custom-reference.docx not found. todocx.sh will still work, but with Pandoc's default Word template."
     fi
 
     if [[ ! -f "${SCRIPT_DIR}/mermaid-config.json" && ! -f "${SCRIPT_DIR}/.mermaid-config.json" ]]; then
@@ -251,4 +251,4 @@ verify_tools
 verify_project_files
 
 log "Installation complete."
-log "Usage: ./todocpng.sh path/to/file.md"
+log "Usage: ./todocx.sh path/to/file.md"
