@@ -112,6 +112,55 @@ pandoc_crossref_is_compatible() {
     [[ "${pandoc_major_minor}" == "${crossref_major_minor}" ]]
 }
 
+install_latest_pandoc_binary() {
+    local arch pandoc_arch latest_tag_url latest_tag url tmpdir binary
+
+    arch="$(uname -m)"
+    case "${arch}" in
+        x86_64|amd64)
+            pandoc_arch="amd64"
+            ;;
+        aarch64|arm64)
+            pandoc_arch="arm64"
+            ;;
+        *)
+            die "Unsupported CPU architecture for pandoc binary install: ${arch}"
+            ;;
+    esac
+
+    log "Installing latest pandoc binary from GitHub releases..."
+    latest_tag_url="$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/jgm/pandoc/releases/latest)"
+    latest_tag="${latest_tag_url##*/}"
+    [[ -n "${latest_tag}" ]] || die "Could not determine latest pandoc release tag."
+
+    url="https://github.com/jgm/pandoc/releases/download/${latest_tag}/pandoc-${latest_tag}-linux-${pandoc_arch}.tar.gz"
+    curl -fsSIL "${url}" >/dev/null || die "Could not find pandoc release asset at ${url}."
+
+    tmpdir="$(mktemp -d)"
+    curl -fL "${url}" -o "${tmpdir}/pandoc.tar.gz"
+    tar -xzf "${tmpdir}/pandoc.tar.gz" -C "${tmpdir}"
+
+    binary="$(find "${tmpdir}" -type f -path '*/bin/pandoc' | head -n 1)"
+    [[ -n "${binary}" ]] || die "Could not extract pandoc binary."
+
+    if [[ "${EUID}" -eq 0 ]]; then
+        install -m 0755 "${binary}" /usr/local/bin/pandoc
+    elif [[ -n "${SUDO}" ]]; then
+        if ! ${SUDO} install -m 0755 "${binary}" /usr/local/bin/pandoc; then
+            mkdir -p "${HOME}/.local/bin"
+            install -m 0755 "${binary}" "${HOME}/.local/bin/pandoc"
+            warn "Installed pandoc to ${HOME}/.local/bin. Ensure this path is in PATH."
+        fi
+    else
+        mkdir -p "${HOME}/.local/bin"
+        install -m 0755 "${binary}" "${HOME}/.local/bin/pandoc"
+        warn "Installed pandoc to ${HOME}/.local/bin. Ensure this path is in PATH."
+    fi
+
+    rm -rf "${tmpdir}"
+    hash -r
+}
+
 install_optional_puppeteer_libs() {
     log "Installing optional browser runtime libraries for Mermaid rendering..."
     local pkg
@@ -247,7 +296,20 @@ install_pandoc_crossref_fallback() {
     if ! pandoc_crossref_is_compatible; then
         detected_crossref_major_minor="$(get_pandoc_crossref_build_major_minor || true)"
         if [[ -n "${detected_crossref_major_minor}" && -z "${requested_tag}" ]]; then
-            die "Latest pandoc-crossref is built for Pandoc v${detected_crossref_major_minor}, but local pandoc is v${pandoc_major_minor}. Set PANDOC_CROSSREF_TAG to a compatible release tag."
+            if [[ "${AUTO_INSTALL_PANDOC_LATEST:-true}" == "true" ]]; then
+                warn "Latest pandoc-crossref is built for Pandoc v${detected_crossref_major_minor}, but local pandoc is v${pandoc_major_minor}. Upgrading pandoc..."
+                install_latest_pandoc_binary
+                pandoc_major_minor="$(get_pandoc_major_minor)"
+                if pandoc_crossref_is_compatible; then
+                    return
+                fi
+                detected_crossref_major_minor="$(get_pandoc_crossref_build_major_minor || true)"
+                if [[ -n "${detected_crossref_major_minor}" ]]; then
+                    die "After pandoc upgrade, pandoc-crossref expects Pandoc v${detected_crossref_major_minor}, but installed pandoc is v${pandoc_major_minor}. Set PANDOC_CROSSREF_TAG to a compatible release tag."
+                fi
+                die "After pandoc upgrade, could not verify pandoc-crossref compatibility with pandoc v${pandoc_major_minor}. Set PANDOC_CROSSREF_TAG."
+            fi
+            die "Latest pandoc-crossref is built for Pandoc v${detected_crossref_major_minor}, but local pandoc is v${pandoc_major_minor}. Set PANDOC_CROSSREF_TAG or run with AUTO_INSTALL_PANDOC_LATEST=true."
         elif [[ -n "${detected_crossref_major_minor}" ]]; then
             die "Requested pandoc-crossref tag ${requested_tag} is built for Pandoc v${detected_crossref_major_minor}, but local pandoc is v${pandoc_major_minor}."
         fi
