@@ -4,6 +4,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Ensure user-level fallback installs are discoverable during this run.
+if [[ -n "${HOME:-}" ]]; then
+    case ":${PATH}:" in
+        *":${HOME}/.local/bin:"*) ;;
+        *) export PATH="${HOME}/.local/bin:${PATH}" ;;
+    esac
+fi
+
+NODE_MAJOR="${NODE_MAJOR:-20}"
+
 log() {
     printf "[install] %s\n" "$*"
 }
@@ -47,11 +57,17 @@ install_required_packages() {
     log "Installing required system packages with ${PKG_MGR}..."
     case "${PKG_MGR}" in
         apt)
+            log "Configuring NodeSource Node.js ${NODE_MAJOR}.x repository for apt..."
             ${SUDO} apt-get update
-            ${SUDO} apt-get install -y pandoc nodejs npm curl ca-certificates tar xz-utils
+            ${SUDO} apt-get install -y curl ca-certificates gnupg
+            curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | ${SUDO} bash -
+            ${SUDO} apt-get install -y pandoc nodejs tar xz-utils
             ;;
         dnf)
-            ${SUDO} dnf install -y pandoc nodejs npm curl ca-certificates tar xz
+            log "Configuring NodeSource Node.js ${NODE_MAJOR}.x repository for dnf..."
+            ${SUDO} dnf install -y curl ca-certificates
+            curl -fsSL "https://rpm.nodesource.com/setup_${NODE_MAJOR}.x" | ${SUDO} bash -
+            ${SUDO} dnf install -y pandoc nodejs tar xz
             ;;
         pacman)
             ${SUDO} pacman -S --noconfirm pandoc nodejs npm curl ca-certificates tar xz
@@ -134,10 +150,10 @@ install_latest_pandoc_binary() {
     [[ -n "${latest_tag}" ]] || die "Could not determine latest pandoc release tag."
 
     url="https://github.com/jgm/pandoc/releases/download/${latest_tag}/pandoc-${latest_tag}-linux-${pandoc_arch}.tar.gz"
-    curl -fsSIL "${url}" >/dev/null || die "Could not find pandoc release asset at ${url}."
 
     tmpdir="$(mktemp -d)"
-    curl -fL "${url}" -o "${tmpdir}/pandoc.tar.gz"
+    curl -fL "${url}" -o "${tmpdir}/pandoc.tar.gz" \
+        || die "Could not download pandoc release asset from ${url}."
     tar -xzf "${tmpdir}/pandoc.tar.gz" -C "${tmpdir}"
 
     binary="$(find "${tmpdir}" -type f -path '*/bin/pandoc' | head -n 1)"
@@ -268,12 +284,10 @@ install_pandoc_crossref_fallback() {
         url="https://github.com/lierdakil/pandoc-crossref/releases/latest/download/${asset_name}"
     fi
 
-    curl -fsSIL "${url}" >/dev/null \
-        || die "Could not find pandoc-crossref release asset at ${url}."
-
     tmpdir="$(mktemp -d)"
 
-    curl -fL "${url}" -o "${tmpdir}/pandoc-crossref.tar.xz"
+    curl -fL "${url}" -o "${tmpdir}/pandoc-crossref.tar.xz" \
+        || die "Could not download pandoc-crossref release asset from ${url}."
     tar -xJf "${tmpdir}/pandoc-crossref.tar.xz" -C "${tmpdir}"
     binary="$(find "${tmpdir}" -type f -name pandoc-crossref | head -n 1)"
     [[ -n "${binary}" ]] || die "Could not extract pandoc-crossref binary."
