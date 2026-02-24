@@ -4,6 +4,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Ensure user-level fallback installs are discoverable during this run.
+if [[ -n "${HOME:-}" ]]; then
+    case ":${PATH}:" in
+        *":${HOME}/.local/bin:"*) ;;
+        *) export PATH="${HOME}/.local/bin:${PATH}" ;;
+    esac
+fi
+
+NODE_MAJOR="${NODE_MAJOR:-20}"
+
 log() {
     printf "[install] %s\n" "$*"
 }
@@ -47,14 +57,27 @@ install_required_packages() {
     log "Installing required system packages with ${PKG_MGR}..."
     case "${PKG_MGR}" in
         apt)
+            log "Configuring NodeSource Node.js ${NODE_MAJOR}.x repository for apt..."
             ${SUDO} apt-get update
-            ${SUDO} apt-get install -y pandoc nodejs npm curl ca-certificates tar xz-utils
+            ${SUDO} apt-get install -y curl ca-certificates gnupg
+            curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | ${SUDO} bash -
+            local apt_node_conflicts=(libnode-dev nodejs-doc)
+            for pkg in "${apt_node_conflicts[@]}"; do
+                if dpkg -s "${pkg}" >/dev/null 2>&1; then
+                    log "Removing conflicting package: ${pkg}"
+                    ${SUDO} apt-get purge -y "${pkg}"
+                fi
+            done
+            ${SUDO} apt-get install -y pandoc nodejs tar xz-utils
             ;;
         dnf)
-            ${SUDO} dnf install -y pandoc nodejs npm curl ca-certificates tar xz
+            log "Configuring NodeSource Node.js ${NODE_MAJOR}.x repository for dnf..."
+            ${SUDO} dnf install -y curl ca-certificates
+            curl -fsSL "https://rpm.nodesource.com/setup_${NODE_MAJOR}.x" | ${SUDO} bash -
+            ${SUDO} dnf install -y pandoc nodejs tar xz
             ;;
         pacman)
-            ${SUDO} pacman -Sy --noconfirm pandoc nodejs npm curl ca-certificates tar xz
+            ${SUDO} pacman -S --noconfirm pandoc nodejs npm curl ca-certificates tar xz
             ;;
         zypper)
             ${SUDO} zypper --non-interactive install pandoc nodejs npm curl ca-certificates tar xz \
@@ -83,6 +106,82 @@ install_pandoc_crossref_package() {
             ${SUDO} zypper --non-interactive install pandoc-crossref >/dev/null 2>&1 || true
             ;;
     esac
+}
+
+get_pandoc_version() {
+    pandoc --version | awk 'NR==1 {print $2}'
+}
+
+get_pandoc_major_minor() {
+    local pandoc_version pandoc_major_minor
+    pandoc_version="$(get_pandoc_version)"
+    pandoc_major_minor="$(printf "%s" "${pandoc_version}" | sed -n 's/^\([0-9]\+\.[0-9]\+\).*/\1/p')"
+    [[ -n "${pandoc_major_minor}" ]] || die "Could not parse pandoc version: ${pandoc_version}"
+    printf "%s\n" "${pandoc_major_minor}"
+}
+
+get_pandoc_crossref_build_major_minor() {
+    local version_line crossref_major_minor
+    version_line="$(pandoc-crossref --version 2>/dev/null | head -n 1 || true)"
+    crossref_major_minor="$(printf "%s" "${version_line}" | sed -n 's/.*built with Pandoc v\([0-9]\+\.[0-9]\+\).*/\1/p')"
+    [[ -n "${crossref_major_minor}" ]] || return 1
+    printf "%s\n" "${crossref_major_minor}"
+}
+
+pandoc_crossref_is_compatible() {
+    local pandoc_major_minor crossref_major_minor
+    pandoc_major_minor="$(get_pandoc_major_minor)"
+    crossref_major_minor="$(get_pandoc_crossref_build_major_minor)" || return 1
+    [[ "${pandoc_major_minor}" == "${crossref_major_minor}" ]]
+}
+
+install_latest_pandoc_binary() {
+    local arch pandoc_arch latest_tag_url latest_tag url tmpdir binary
+
+    arch="$(uname -m)"
+    case "${arch}" in
+        x86_64|amd64)
+            pandoc_arch="amd64"
+            ;;
+        aarch64|arm64)
+            pandoc_arch="arm64"
+            ;;
+        *)
+            die "Unsupported CPU architecture for pandoc binary install: ${arch}"
+            ;;
+    esac
+
+    log "Installing latest pandoc binary from GitHub releases..."
+    latest_tag_url="$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/jgm/pandoc/releases/latest)"
+    latest_tag="${latest_tag_url##*/}"
+    [[ -n "${latest_tag}" ]] || die "Could not determine latest pandoc release tag."
+
+    url="https://github.com/jgm/pandoc/releases/download/${latest_tag}/pandoc-${latest_tag}-linux-${pandoc_arch}.tar.gz"
+
+    tmpdir="$(mktemp -d)"
+    curl -fL "${url}" -o "${tmpdir}/pandoc.tar.gz" \
+        || die "Could not download pandoc release asset from ${url}."
+    tar -xzf "${tmpdir}/pandoc.tar.gz" -C "${tmpdir}"
+
+    binary="$(find "${tmpdir}" -type f -path '*/bin/pandoc' | head -n 1)"
+    [[ -n "${binary}" ]] || die "Could not extract pandoc binary."
+
+    if [[ "${EUID}" -eq 0 ]]; then
+        install -m 0755 "${binary}" /usr/local/bin/pandoc
+    elif [[ -n "${SUDO}" ]]; then
+        if ! ${SUDO} install -m 0755 "${binary}" /usr/local/bin/pandoc; then
+            mkdir -p "${HOME}/.local/bin"
+            install -m 0755 "${binary}" "${HOME}/.local/bin/pandoc"
+            warn "Installed pandoc to ${HOME}/.local/bin. Ensure this path is in PATH."
+        fi
+    else
+        mkdir -p "${HOME}/.local/bin"
+        install -m 0755 "${binary}" "${HOME}/.local/bin/pandoc"
+        warn "Installed pandoc to ${HOME}/.local/bin. Ensure this path is in PATH."
+    fi
+
+    rm -rf "${tmpdir}"
+    hash -r
 }
 
 install_optional_puppeteer_libs() {
@@ -151,14 +250,94 @@ install_mermaid_filter() {
     fi
 }
 
+find_mermaid_filter_module_dir() {
+    local mermaid_bin npm_prefix npm_root
+    mermaid_bin="$(command -v mermaid-filter || true)"
+    if [[ -n "${mermaid_bin}" ]]; then
+        npm_prefix="$(cd "$(dirname "${mermaid_bin}")/.." && pwd)"
+        if [[ -d "${npm_prefix}/lib/node_modules/mermaid-filter" ]]; then
+            printf "%s\n" "${npm_prefix}/lib/node_modules/mermaid-filter"
+            return 0
+        fi
+    fi
+
+    npm_root="$(npm root -g 2>/dev/null || true)"
+    if [[ -n "${npm_root}" && -d "${npm_root}/mermaid-filter" ]]; then
+        printf "%s\n" "${npm_root}/mermaid-filter"
+        return 0
+    fi
+
+    return 1
+}
+
+install_puppeteer_browser_for_mermaid() {
+    local module_dir browsers_cli chromium_revision cache_dir target_home
+    local -a browsers_runner=()
+
+    module_dir="$(find_mermaid_filter_module_dir || true)"
+    if [[ -z "${module_dir}" ]]; then
+        die "Could not locate mermaid-filter module directory after install."
+    fi
+
+    browsers_cli="${module_dir}/node_modules/.bin/browsers"
+    if [[ ! -x "${browsers_cli}" ]]; then
+        die "Could not find Puppeteer browsers CLI at ${browsers_cli}."
+    fi
+
+    chromium_revision="$(NODE_PATH_TARGET="${module_dir}" node - <<'NODE'
+const path = require('path');
+const moduleDir = process.env.NODE_PATH_TARGET;
+try {
+  const revisions = require(path.join(moduleDir, 'node_modules/puppeteer-core/lib/cjs/puppeteer/revisions.js'));
+  process.stdout.write(revisions.PUPPETEER_REVISIONS.chromium || '');
+} catch (_) {
+  process.stdout.write('');
+}
+NODE
+)"
+
+    target_home="${HOME}"
+    if [[ "${EUID}" -eq 0 && -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+        target_home="$(getent passwd "${SUDO_USER}" | cut -d: -f6)"
+        browsers_runner=(sudo -H -u "${SUDO_USER}")
+    fi
+
+    cache_dir="${PUPPETEER_CACHE_DIR:-${target_home}/.cache/puppeteer}"
+    if (( ${#browsers_runner[@]} )); then
+        "${browsers_runner[@]}" mkdir -p "${cache_dir}"
+    else
+        mkdir -p "${cache_dir}"
+    fi
+
+    if [[ -n "${chromium_revision}" ]]; then
+        log "Installing Puppeteer Chromium revision ${chromium_revision} for mermaid-filter..."
+        "${browsers_runner[@]}" "${browsers_cli}" install "chromium@${chromium_revision}" --path "${cache_dir}" >/dev/null \
+            || die "Failed to install Puppeteer Chromium revision ${chromium_revision}."
+    else
+        warn "Could not determine required Chromium revision from mermaid-filter; installing latest Puppeteer Chrome build."
+        "${browsers_runner[@]}" "${browsers_cli}" install chrome --path "${cache_dir}" >/dev/null \
+            || die "Failed to install Puppeteer Chrome browser."
+    fi
+}
+
 install_pandoc_crossref_fallback() {
-    if command -v pandoc-crossref >/dev/null 2>&1; then
+    local pandoc_major_minor detected_crossref_major_minor
+
+    if command -v pandoc-crossref >/dev/null 2>&1 && pandoc_crossref_is_compatible; then
         return
     fi
 
-    log "pandoc-crossref package was unavailable; installing latest binary release..."
+    pandoc_major_minor="$(get_pandoc_major_minor)"
+    if command -v pandoc-crossref >/dev/null 2>&1; then
+        detected_crossref_major_minor="$(get_pandoc_crossref_build_major_minor || true)"
+        if [[ -n "${detected_crossref_major_minor}" ]]; then
+            warn "Detected pandoc-crossref built for Pandoc v${detected_crossref_major_minor}, but installed pandoc is v${pandoc_major_minor}."
+        else
+            warn "Could not determine which Pandoc version the installed pandoc-crossref was built for."
+        fi
+    fi
 
-    local arch token release_json url tmpdir binary
+    local arch token asset_name requested_tag url tmpdir binary
     arch="$(uname -m)"
     case "${arch}" in
         x86_64|amd64)
@@ -172,18 +351,20 @@ install_pandoc_crossref_fallback() {
             ;;
     esac
 
-    release_json="$(curl -fsSL https://api.github.com/repos/lierdakil/pandoc-crossref/releases/latest)"
-    url="$(printf "%s" "${release_json}" \
-        | sed -n 's/.*"browser_download_url":"\([^"]*\)".*/\1/p' \
-        | sed 's/\\\//\//g' \
-        | grep "pandoc-crossref-Linux-${token}\.tar\.xz" \
-        | head -n 1)"
-
-    [[ -n "${url}" ]] || die "Could not find a Linux ${token} pandoc-crossref release asset."
+    asset_name="pandoc-crossref-Linux-${token}.tar.xz"
+    requested_tag="${PANDOC_CROSSREF_TAG:-}"
+    if [[ -n "${requested_tag}" ]]; then
+        log "Installing pandoc-crossref release tag ${requested_tag} via direct download URL..."
+        url="https://github.com/lierdakil/pandoc-crossref/releases/download/${requested_tag}/${asset_name}"
+    else
+        log "Installing latest pandoc-crossref release via direct download URL..."
+        url="https://github.com/lierdakil/pandoc-crossref/releases/latest/download/${asset_name}"
+    fi
 
     tmpdir="$(mktemp -d)"
 
-    curl -fL "${url}" -o "${tmpdir}/pandoc-crossref.tar.xz"
+    curl -fL "${url}" -o "${tmpdir}/pandoc-crossref.tar.xz" \
+        || die "Could not download pandoc-crossref release asset from ${url}."
     tar -xJf "${tmpdir}/pandoc-crossref.tar.xz" -C "${tmpdir}"
     binary="$(find "${tmpdir}" -type f -name pandoc-crossref | head -n 1)"
     [[ -n "${binary}" ]] || die "Could not extract pandoc-crossref binary."
@@ -200,6 +381,30 @@ install_pandoc_crossref_fallback() {
         mkdir -p "${HOME}/.local/bin"
         install -m 0755 "${binary}" "${HOME}/.local/bin/pandoc-crossref"
         warn "Installed pandoc-crossref to ${HOME}/.local/bin. Ensure this path is in PATH."
+    fi
+
+    hash -r
+    if ! pandoc_crossref_is_compatible; then
+        detected_crossref_major_minor="$(get_pandoc_crossref_build_major_minor || true)"
+        if [[ -n "${detected_crossref_major_minor}" && -z "${requested_tag}" ]]; then
+            if [[ "${AUTO_INSTALL_PANDOC_LATEST:-true}" == "true" ]]; then
+                warn "Latest pandoc-crossref is built for Pandoc v${detected_crossref_major_minor}, but local pandoc is v${pandoc_major_minor}. Upgrading pandoc..."
+                install_latest_pandoc_binary
+                pandoc_major_minor="$(get_pandoc_major_minor)"
+                if pandoc_crossref_is_compatible; then
+                    return
+                fi
+                detected_crossref_major_minor="$(get_pandoc_crossref_build_major_minor || true)"
+                if [[ -n "${detected_crossref_major_minor}" ]]; then
+                    die "After pandoc upgrade, pandoc-crossref expects Pandoc v${detected_crossref_major_minor}, but installed pandoc is v${pandoc_major_minor}. Set PANDOC_CROSSREF_TAG to a compatible release tag."
+                fi
+                die "After pandoc upgrade, could not verify pandoc-crossref compatibility with pandoc v${pandoc_major_minor}. Set PANDOC_CROSSREF_TAG."
+            fi
+            die "Latest pandoc-crossref is built for Pandoc v${detected_crossref_major_minor}, but local pandoc is v${pandoc_major_minor}. Set PANDOC_CROSSREF_TAG or run with AUTO_INSTALL_PANDOC_LATEST=true."
+        elif [[ -n "${detected_crossref_major_minor}" ]]; then
+            die "Requested pandoc-crossref tag ${requested_tag} is built for Pandoc v${detected_crossref_major_minor}, but local pandoc is v${pandoc_major_minor}."
+        fi
+        die "Installed pandoc-crossref but could not verify compatibility with pandoc v${pandoc_major_minor}. Try setting PANDOC_CROSSREF_TAG."
     fi
 
     rm -rf "${tmpdir}"
@@ -247,6 +452,7 @@ install_optional_puppeteer_libs
 install_pandoc_crossref_package
 install_pandoc_crossref_fallback
 install_mermaid_filter
+install_puppeteer_browser_for_mermaid
 verify_tools
 verify_project_files
 
