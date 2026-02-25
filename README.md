@@ -1,6 +1,6 @@
 # Proseform
 
-This release package converts a Markdown file to `.docx` using `todocx.sh`, including Mermaid diagrams rendered as high-resolution PNG images.
+Proseform turns Markdown into polished Word (`.docx`) using `todocx.sh`, with Mermaid diagrams rendered as crisp, high-resolution PNGs. Use it when you want docs that read well in Word without giving up Markdown authoring.
 
 ## Included files
 
@@ -38,9 +38,16 @@ Convert a Markdown file:
 ./todocx.sh path/to/file.md
 ```
 
+Try it: after installing, test Proseform's capabilities by converting `DEMO.md`:
+
+```bash
+./todocx.sh DEMO.md
+```
+
 This creates:
 
 - `path/to/file.docx`
+- `DEMO.docx`
 
 ## Notes
 
