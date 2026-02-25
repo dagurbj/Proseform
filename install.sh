@@ -240,14 +240,27 @@ install_mermaid_filter() {
 
     log "Installing mermaid-filter via npm (includes Mermaid CLI)..."
     if npm install -g mermaid-filter; then
+        hash -r
         return
     fi
 
-    if [[ -n "${SUDO}" ]]; then
-        ${SUDO} npm install -g mermaid-filter
-    else
-        die "Failed to install mermaid-filter with npm."
+    if [[ -n "${HOME:-}" ]]; then
+        warn "Global npm install failed; trying user-local npm prefix at ${HOME}/.local..."
+        if npm install -g --prefix "${HOME}/.local" mermaid-filter; then
+            hash -r
+            return
+        fi
     fi
+
+    if [[ -n "${SUDO}" ]]; then
+        warn "User-local npm install failed; retrying global install with sudo..."
+        if ${SUDO} npm install -g mermaid-filter; then
+            hash -r
+            return
+        fi
+    fi
+
+    die "Failed to install mermaid-filter with npm (global, user-local, and sudo fallback)."
 }
 
 find_mermaid_filter_module_dir() {
