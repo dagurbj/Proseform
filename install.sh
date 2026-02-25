@@ -240,14 +240,27 @@ install_mermaid_filter() {
 
     log "Installing mermaid-filter via npm (includes Mermaid CLI)..."
     if npm install -g mermaid-filter; then
+        hash -r
         return
     fi
 
-    if [[ -n "${SUDO}" ]]; then
-        ${SUDO} npm install -g mermaid-filter
-    else
-        die "Failed to install mermaid-filter with npm."
+    if [[ -n "${HOME:-}" ]]; then
+        warn "Global npm install failed; trying user-local npm prefix at ${HOME}/.local..."
+        if npm install -g --prefix "${HOME}/.local" mermaid-filter; then
+            hash -r
+            return
+        fi
     fi
+
+    if [[ -n "${SUDO}" ]]; then
+        warn "User-local npm install failed; retrying global install with sudo..."
+        if ${SUDO} npm install -g mermaid-filter; then
+            hash -r
+            return
+        fi
+    fi
+
+    die "Failed to install mermaid-filter with npm (global, user-local, and sudo fallback)."
 }
 
 find_mermaid_filter_module_dir() {
@@ -425,24 +438,23 @@ verify_tools() {
 verify_project_files() {
     local required_files=(
         todocx.sh
-        remove-heading-numbers.lua
-        mermaid-caption-from-text.lua
-        mermaid-image-to-figure.lua
+        filters/remove-heading-numbers.lua
+        filters/mermaid-caption-from-text.lua
+        filters/mermaid-image-to-figure.lua
+        config/mermaid-config.json
     )
     local file
     for file in "${required_files[@]}"; do
         [[ -f "${SCRIPT_DIR}/${file}" ]] || die "Missing project file: ${file}"
     done
 
-    if [[ -f "${SCRIPT_DIR}/custom-reference.docx" ]]; then
-        log "Found custom-reference.docx."
-    elif [[ -f "${SCRIPT_DIR}/old/custom-reference.docx" ]]; then
-        warn "custom-reference.docx not in repo root. Falling back to old/custom-reference.docx."
+    if [[ -f "${SCRIPT_DIR}/templates/custom-reference.docx" ]]; then
+        log "Found templates/custom-reference.docx."
     else
-        warn "custom-reference.docx not found. todocx.sh will still work, but with Pandoc's default Word template."
+        warn "templates/custom-reference.docx not found. todocx.sh will still work, but with Pandoc's default Word template."
     fi
 
-    if [[ ! -f "${SCRIPT_DIR}/mermaid-config.json" && ! -f "${SCRIPT_DIR}/.mermaid-config.json" ]]; then
+    if [[ ! -f "${SCRIPT_DIR}/config/mermaid-config.json" && ! -f "${SCRIPT_DIR}/.mermaid-config.json" ]]; then
         warn "No Mermaid config file found; defaults from mermaid-filter will be used."
     fi
 }
@@ -458,5 +470,5 @@ verify_project_files
 
 log "Installation complete."
 log "Usage: ./todocx.sh path/to/file.md"
-log "After installing, test Proseform's capabilities by converting DEMO.md."
-log "Command: ./todocx.sh DEMO.md (creates DEMO.docx)"
+log "After installing, test Proseform's capabilities by converting docs/DEMO.md."
+log "Command: ./todocx.sh docs/DEMO.md (creates docs/DEMO.docx)"

@@ -2,17 +2,13 @@
 
 Proseform turns Markdown into polished Word (`.docx`) using `todocx.sh`, with Mermaid diagrams rendered as crisp, high-resolution PNGs. Use it when you want docs that read well in Word without giving up Markdown authoring.
 
-## Included files
+## Project layout
 
-- `todocx.sh`
-- `install.sh`
-- `remove-heading-numbers.lua`
-- `mermaid-caption-from-text.lua`
-- `mermaid-image-to-figure.lua`
-- `mermaid-config.json`
-- `custom-reference.docx`
-
-Keep these files in the same directory.
+- `install.sh` and `todocx.sh` in the project root (user-facing entrypoints)
+- `filters/` for Lua filters used by Pandoc
+- `config/` for Mermaid rendering configuration
+- `templates/` for Word reference templates
+- `docs/` for demo and project documentation
 
 ## Linux installation
 
@@ -38,18 +34,18 @@ Convert a Markdown file:
 ./todocx.sh path/to/file.md
 ```
 
-Try it: after installing, test Proseform's capabilities by converting `DEMO.md`:
+Try it: after installing, test Proseform's capabilities by converting `docs/DEMO.md`:
 
 ```bash
-./todocx.sh DEMO.md
+./todocx.sh docs/DEMO.md
 ```
 
 This creates:
 
 - `path/to/file.docx`
-- `DEMO.docx`
+- `docs/DEMO.docx`
 
 ## Notes
 
-- `custom-reference.docx` controls Word styling/template output.
-- If you remove `custom-reference.docx`, conversion still works, but Pandoc uses its default DOCX template.
+- `templates/custom-reference.docx` controls Word styling/template output.
+- If you remove `templates/custom-reference.docx`, conversion still works, but Pandoc uses its default DOCX template.
