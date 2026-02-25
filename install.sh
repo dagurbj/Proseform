@@ -458,3 +458,5 @@ verify_project_files
 
 log "Installation complete."
 log "Usage: ./todocx.sh path/to/file.md"
+log "After installing, test Proseform's capabilities by converting DEMO.md."
+log "Command: ./todocx.sh DEMO.md (creates DEMO.docx)"
