@@ -25,6 +25,14 @@ FILTERS_DIR="$SCRIPT_DIR/filters"
 CONFIG_DIR="$SCRIPT_DIR/config"
 TEMPLATES_DIR="$SCRIPT_DIR/templates"
 
+# Ensure user-local installs (e.g. npm --prefix ~/.local) are discoverable.
+if [[ -n "${HOME:-}" ]]; then
+    case ":${PATH}:" in
+        *":${HOME}/.local/bin:"*) ;;
+        *) export PATH="${HOME}/.local/bin:${PATH}" ;;
+    esac
+fi
+
 TMP_MERMAID_DIR="$(mktemp -d)"
 cleanup() {
     rm -rf "$TMP_MERMAID_DIR"
@@ -73,6 +81,12 @@ if [ -f "$REFERENCE_DOC" ]; then
     PANDOC_ARGS+=(--reference-doc="$REFERENCE_DOC")
 else
     echo "Warning: custom-reference.docx not found; using pandoc default docx template."
+fi
+
+if ! command -v mermaid-filter >/dev/null 2>&1; then
+    echo "Error: Could not find executable mermaid-filter in PATH."
+    echo "Run ./install.sh or add ~/.local/bin to PATH."
+    exit 1
 fi
 
 pandoc "$INPUT_FILE" "${PANDOC_ARGS[@]}"
