@@ -21,6 +21,9 @@ FILENAME="${BASENAME%.*}"
 OUTPUT_FILE="$DIR/$FILENAME.docx"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FILTERS_DIR="$SCRIPT_DIR/filters"
+CONFIG_DIR="$SCRIPT_DIR/config"
+TEMPLATES_DIR="$SCRIPT_DIR/templates"
 
 TMP_MERMAID_DIR="$(mktemp -d)"
 cleanup() {
@@ -36,8 +39,8 @@ export MERMAID_FILTER_SCALE="${MERMAID_FILTER_SCALE:-3}"
 export MERMAID_FILTER_THEME="${MERMAID_FILTER_THEME:-default}"
 export MERMAID_FILTER_BACKGROUND="${MERMAID_FILTER_BACKGROUND:-white}"
 
-if [ -f "$SCRIPT_DIR/mermaid-config.json" ]; then
-    export MERMAID_FILTER_MERMAID_CONFIG="$SCRIPT_DIR/mermaid-config.json"
+if [ -f "$CONFIG_DIR/mermaid-config.json" ]; then
+    export MERMAID_FILTER_MERMAID_CONFIG="$CONFIG_DIR/mermaid-config.json"
 elif [ -f "$SCRIPT_DIR/.mermaid-config.json" ]; then
     export MERMAID_FILTER_MERMAID_CONFIG="$SCRIPT_DIR/.mermaid-config.json"
 fi
@@ -46,17 +49,19 @@ if [ -f "$SCRIPT_DIR/.puppeteer.json" ]; then
     export MERMAID_FILTER_PUPPETEER_CONFIG="$SCRIPT_DIR/.puppeteer.json"
 fi
 
-REFERENCE_DOC="$SCRIPT_DIR/custom-reference.docx"
-if [ ! -f "$REFERENCE_DOC" ] && [ -f "$SCRIPT_DIR/old/custom-reference.docx" ]; then
-    REFERENCE_DOC="$SCRIPT_DIR/old/custom-reference.docx"
-fi
+REFERENCE_DOC="$TEMPLATES_DIR/custom-reference.docx"
+REMOVE_HEADING_FILTER="$FILTERS_DIR/remove-heading-numbers.lua"
+
+MERMAID_CAPTION_FILTER="$FILTERS_DIR/mermaid-caption-from-text.lua"
+
+MERMAID_IMAGE_FILTER="$FILTERS_DIR/mermaid-image-to-figure.lua"
 
 PANDOC_ARGS=(
     --from markdown+lists_without_preceding_blankline
-    --lua-filter="$SCRIPT_DIR/remove-heading-numbers.lua"
-    --lua-filter="$SCRIPT_DIR/mermaid-caption-from-text.lua"
+    --lua-filter="$REMOVE_HEADING_FILTER"
+    --lua-filter="$MERMAID_CAPTION_FILTER"
     --filter mermaid-filter
-    --lua-filter="$SCRIPT_DIR/mermaid-image-to-figure.lua"
+    --lua-filter="$MERMAID_IMAGE_FILTER"
     --filter pandoc-crossref
     --syntax-highlighting=tango
     -M figPrefix="Figur"
