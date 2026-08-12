@@ -112,31 +112,24 @@ get_pandoc_version() {
     pandoc --version | awk 'NR==1 {print $2}'
 }
 
-get_pandoc_major_minor() {
-    local pandoc_version pandoc_major_minor
-    pandoc_version="$(get_pandoc_version)"
-    pandoc_major_minor="$(printf "%s" "${pandoc_version}" | sed -n 's/^\([0-9]\+\.[0-9]\+\).*/\1/p')"
-    [[ -n "${pandoc_major_minor}" ]] || die "Could not parse pandoc version: ${pandoc_version}"
-    printf "%s\n" "${pandoc_major_minor}"
-}
-
-get_pandoc_crossref_build_major_minor() {
-    local version_line crossref_major_minor
+get_pandoc_crossref_build_version() {
+    local version_line crossref_version
     version_line="$(pandoc-crossref --version 2>/dev/null | head -n 1 || true)"
-    crossref_major_minor="$(printf "%s" "${version_line}" | sed -n 's/.*built with Pandoc v\([0-9]\+\.[0-9]\+\).*/\1/p')"
-    [[ -n "${crossref_major_minor}" ]] || return 1
-    printf "%s\n" "${crossref_major_minor}"
+    crossref_version="$(printf "%s" "${version_line}" | sed -n 's/.*built with Pandoc v\([0-9][0-9.]*\).*/\1/p')"
+    [[ -n "${crossref_version}" ]] || return 1
+    printf "%s\n" "${crossref_version}"
 }
 
 pandoc_crossref_is_compatible() {
-    local pandoc_major_minor crossref_major_minor
-    pandoc_major_minor="$(get_pandoc_major_minor)"
-    crossref_major_minor="$(get_pandoc_crossref_build_major_minor)" || return 1
-    [[ "${pandoc_major_minor}" == "${crossref_major_minor}" ]]
+    local pandoc_version crossref_version
+    pandoc_version="$(get_pandoc_version)"
+    crossref_version="$(get_pandoc_crossref_build_version)" || return 1
+    [[ "${pandoc_version}" == "${crossref_version}" ]]
 }
 
-install_latest_pandoc_binary() {
-    local arch pandoc_arch latest_tag_url latest_tag url tmpdir binary
+install_pandoc_binary() {
+    local requested_tag="${1:-}"
+    local arch pandoc_arch release_tag latest_tag_url url tmpdir binary
 
     arch="$(uname -m)"
     case "${arch}" in
@@ -151,12 +144,17 @@ install_latest_pandoc_binary() {
             ;;
     esac
 
-    log "Installing latest pandoc binary from GitHub releases..."
-    latest_tag_url="$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/jgm/pandoc/releases/latest)"
-    latest_tag="${latest_tag_url##*/}"
-    [[ -n "${latest_tag}" ]] || die "Could not determine latest pandoc release tag."
+    if [[ -n "${requested_tag}" ]]; then
+        release_tag="${requested_tag}"
+        log "Installing pandoc ${release_tag} binary from GitHub releases..."
+    else
+        log "Installing latest pandoc binary from GitHub releases..."
+        latest_tag_url="$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/jgm/pandoc/releases/latest)"
+        release_tag="${latest_tag_url##*/}"
+        [[ -n "${release_tag}" ]] || die "Could not determine latest pandoc release tag."
+    fi
 
-    url="https://github.com/jgm/pandoc/releases/download/${latest_tag}/pandoc-${latest_tag}-linux-${pandoc_arch}.tar.gz"
+    url="https://github.com/jgm/pandoc/releases/download/${release_tag}/pandoc-${release_tag}-linux-${pandoc_arch}.tar.gz"
 
     tmpdir="$(mktemp -d)"
     curl -fL "${url}" -o "${tmpdir}/pandoc.tar.gz" \
@@ -182,6 +180,14 @@ install_latest_pandoc_binary() {
 
     rm -rf "${tmpdir}"
     hash -r
+}
+
+install_latest_pandoc_binary() {
+    install_pandoc_binary
+}
+
+install_pandoc_binary_for_version() {
+    install_pandoc_binary "$1"
 }
 
 install_optional_puppeteer_libs() {
@@ -334,17 +340,17 @@ NODE
 }
 
 install_pandoc_crossref_fallback() {
-    local pandoc_major_minor detected_crossref_major_minor
+    local pandoc_version detected_crossref_version
 
     if command -v pandoc-crossref >/dev/null 2>&1 && pandoc_crossref_is_compatible; then
         return
     fi
 
-    pandoc_major_minor="$(get_pandoc_major_minor)"
+    pandoc_version="$(get_pandoc_version)"
     if command -v pandoc-crossref >/dev/null 2>&1; then
-        detected_crossref_major_minor="$(get_pandoc_crossref_build_major_minor || true)"
-        if [[ -n "${detected_crossref_major_minor}" ]]; then
-            warn "Detected pandoc-crossref built for Pandoc v${detected_crossref_major_minor}, but installed pandoc is v${pandoc_major_minor}."
+        detected_crossref_version="$(get_pandoc_crossref_build_version || true)"
+        if [[ -n "${detected_crossref_version}" ]]; then
+            warn "Detected pandoc-crossref built for Pandoc v${detected_crossref_version}, but installed pandoc is v${pandoc_version}."
         else
             warn "Could not determine which Pandoc version the installed pandoc-crossref was built for."
         fi
@@ -398,26 +404,19 @@ install_pandoc_crossref_fallback() {
 
     hash -r
     if ! pandoc_crossref_is_compatible; then
-        detected_crossref_major_minor="$(get_pandoc_crossref_build_major_minor || true)"
-        if [[ -n "${detected_crossref_major_minor}" && -z "${requested_tag}" ]]; then
-            if [[ "${AUTO_INSTALL_PANDOC_LATEST:-true}" == "true" ]]; then
-                warn "Latest pandoc-crossref is built for Pandoc v${detected_crossref_major_minor}, but local pandoc is v${pandoc_major_minor}. Upgrading pandoc..."
-                install_latest_pandoc_binary
-                pandoc_major_minor="$(get_pandoc_major_minor)"
-                if pandoc_crossref_is_compatible; then
-                    return
-                fi
-                detected_crossref_major_minor="$(get_pandoc_crossref_build_major_minor || true)"
-                if [[ -n "${detected_crossref_major_minor}" ]]; then
-                    die "After pandoc upgrade, pandoc-crossref expects Pandoc v${detected_crossref_major_minor}, but installed pandoc is v${pandoc_major_minor}. Set PANDOC_CROSSREF_TAG to a compatible release tag."
-                fi
-                die "After pandoc upgrade, could not verify pandoc-crossref compatibility with pandoc v${pandoc_major_minor}. Set PANDOC_CROSSREF_TAG."
+        detected_crossref_version="$(get_pandoc_crossref_build_version || true)"
+        if [[ -n "${detected_crossref_version}" && -z "${requested_tag}" ]]; then
+            warn "Installing pandoc v${detected_crossref_version} to match pandoc-crossref..."
+            install_pandoc_binary_for_version "${detected_crossref_version}"
+            pandoc_version="$(get_pandoc_version)"
+            if pandoc_crossref_is_compatible; then
+                return
             fi
-            die "Latest pandoc-crossref is built for Pandoc v${detected_crossref_major_minor}, but local pandoc is v${pandoc_major_minor}. Set PANDOC_CROSSREF_TAG or run with AUTO_INSTALL_PANDOC_LATEST=true."
-        elif [[ -n "${detected_crossref_major_minor}" ]]; then
-            die "Requested pandoc-crossref tag ${requested_tag} is built for Pandoc v${detected_crossref_major_minor}, but local pandoc is v${pandoc_major_minor}."
+            die "After installing pandoc v${detected_crossref_version}, pandoc-crossref still reports an incompatibility with pandoc v${pandoc_version}. Set PANDOC_CROSSREF_TAG to a compatible release tag."
+        elif [[ -n "${detected_crossref_version}" ]]; then
+            die "Requested pandoc-crossref tag ${requested_tag} is built for Pandoc v${detected_crossref_version}, but local pandoc is v${pandoc_version}."
         fi
-        die "Installed pandoc-crossref but could not verify compatibility with pandoc v${pandoc_major_minor}. Try setting PANDOC_CROSSREF_TAG."
+        die "Installed pandoc-crossref but could not verify compatibility with pandoc v${pandoc_version}. Try setting PANDOC_CROSSREF_TAG."
     fi
 
     rm -rf "${tmpdir}"
@@ -438,7 +437,7 @@ verify_tools() {
 verify_project_files() {
     local required_files=(
         todocx.sh
-        filters/remove-heading-numbers.lua
+        filters/normalize-headings.lua
         filters/mermaid-caption-from-text.lua
         filters/mermaid-image-to-figure.lua
         config/mermaid-config.json
@@ -469,6 +468,6 @@ verify_tools
 verify_project_files
 
 log "Installation complete."
-log "Usage: ./todocx.sh path/to/file.md"
+log "Usage: ./todocx.sh [-hlb] path/to/file.md"
 log "After installing, test Proseform's capabilities by converting docs/DEMO.md."
 log "Command: ./todocx.sh docs/DEMO.md (creates docs/DEMO.docx)"
