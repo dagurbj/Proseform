@@ -2,12 +2,55 @@
 
 set -euo pipefail
 
-if [ $# -lt 1 ]; then
-    echo "Usage: $0 <markdown_file.md>"
+ENABLE_HARD_LINE_BREAKS=false
+INPUT_FILE=""
+PARSE_OPTIONS=true
+
+while [ $# -gt 0 ]; do
+    if [ "$PARSE_OPTIONS" = true ]; then
+        case "$1" in
+            -hlb|--hard-line-breaks)
+                ENABLE_HARD_LINE_BREAKS=true
+                ;;
+            -h|--help)
+                echo "Usage: $0 [-hlb] <markdown_file.md>"
+                echo "  -hlb  Preserve single line breaks in Word output."
+                exit 0
+                ;;
+            --)
+                PARSE_OPTIONS=false
+                shift
+                continue
+                ;;
+            -*)
+                echo "Error: Unknown option '$1'"
+                echo "Usage: $0 [-hlb] <markdown_file.md>"
+                exit 1
+                ;;
+            *)
+                if [ -n "$INPUT_FILE" ]; then
+                    echo "Error: Multiple input files are not supported."
+                    echo "Usage: $0 [-hlb] <markdown_file.md>"
+                    exit 1
+                fi
+                INPUT_FILE="$1"
+                ;;
+        esac
+    else
+        if [ -n "$INPUT_FILE" ]; then
+            echo "Error: Multiple input files are not supported."
+            echo "Usage: $0 [-hlb] <markdown_file.md>"
+            exit 1
+        fi
+        INPUT_FILE="$1"
+    fi
+    shift
+done
+
+if [ -z "$INPUT_FILE" ]; then
+    echo "Usage: $0 [-hlb] <markdown_file.md>"
     exit 1
 fi
-
-INPUT_FILE="$1"
 
 if [ ! -f "$INPUT_FILE" ]; then
     echo "Error: File not found at '$INPUT_FILE'"
@@ -58,14 +101,19 @@ if [ -f "$SCRIPT_DIR/.puppeteer.json" ]; then
 fi
 
 REFERENCE_DOC="$TEMPLATES_DIR/custom-reference.docx"
-REMOVE_HEADING_FILTER="$FILTERS_DIR/remove-heading-numbers.lua"
+REMOVE_HEADING_FILTER="$FILTERS_DIR/normalize-headings.lua"
 
 MERMAID_CAPTION_FILTER="$FILTERS_DIR/mermaid-caption-from-text.lua"
 
 MERMAID_IMAGE_FILTER="$FILTERS_DIR/mermaid-image-to-figure.lua"
 
+INPUT_FORMAT="markdown+lists_without_preceding_blankline"
+if [ "$ENABLE_HARD_LINE_BREAKS" = true ]; then
+    INPUT_FORMAT="$INPUT_FORMAT+hard_line_breaks"
+fi
+
 PANDOC_ARGS=(
-    --from markdown+lists_without_preceding_blankline
+    --from "$INPUT_FORMAT"
     --lua-filter="$REMOVE_HEADING_FILTER"
     --lua-filter="$MERMAID_CAPTION_FILTER"
     --filter mermaid-filter

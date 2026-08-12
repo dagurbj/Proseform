@@ -26,12 +26,20 @@ The installer sets up the required tools:
 - npm package `mermaid-filter` (includes Mermaid CLI)
 - common Chromium runtime libraries used by Mermaid rendering
 
+The installer also keeps `pandoc` aligned with the `pandoc-crossref` build it finds, which avoids runtime version-mismatch warnings.
+
 ## Usage
 
 Convert a Markdown file:
 
 ```bash
 ./todocx.sh path/to/file.md
+```
+
+Preserve single line breaks in Word output when needed:
+
+```bash
+./todocx.sh -hlb path/to/file.md
 ```
 
 Try it: after installing, test Proseform's capabilities by converting `docs/DEMO.md`:
@@ -49,3 +57,4 @@ This creates:
 
 - `templates/custom-reference.docx` controls Word styling/template output.
 - If you remove `templates/custom-reference.docx`, conversion still works, but Pandoc uses its default DOCX template.
+- Use `-hlb` when you want single line breaks in the Markdown source to stay as line breaks in the DOCX output.
